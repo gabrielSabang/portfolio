@@ -3,9 +3,6 @@
 import { useState, FormEvent, FocusEvent } from "react";
 import { Send } from "lucide-react";
 import { useScrollAnimation } from "@/hooks/useScrollAnimation";
-import { useRateLimit } from "@/hooks/useRateLimit";
-
-const FORMSPREE_ENDPOINT = "YOUR_FORMSPREE_ENDPOINT";
 
 const socials = [
   {
@@ -64,14 +61,11 @@ function validateField(name: string, value: string): string | undefined {
 
 export default function Contact() {
   const { ref, isVisible } = useScrollAnimation();
-  const { isLimited, remaining, checkRateLimit, recordSubmission } =
-    useRateLimit();
   const [status, setStatus] = useState<
     "idle" | "sending" | "success" | "error"
   >("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [errors, setErrors] = useState<FormErrors>({});
-
   function handleBlur(e: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) {
     const { name, value } = e.target;
     const error = validateField(name, value);
@@ -98,30 +92,34 @@ export default function Contact() {
       return;
     }
 
-    if (checkRateLimit()) {
-      setStatus("error");
-      setErrorMessage("Too many messages. Please wait a moment before trying again.");
-      return;
-    }
-
     setStatus("sending");
     setErrorMessage("");
 
     try {
-      const res = await fetch(FORMSPREE_ENDPOINT, {
+      const res = await fetch("/api/contact", {
         method: "POST",
         body: formData,
-        headers: { Accept: "application/json" },
       });
+
+      const body = await res.json();
+
+      if (res.status === 429) {
+        setStatus("error");
+        setErrorMessage(
+          "Too many messages. Please try again later.",
+        );
+        return;
+      }
 
       if (res.ok) {
         setStatus("success");
-        recordSubmission();
         form.reset();
         setErrors({});
       } else {
         setStatus("error");
-        setErrorMessage("Something went wrong. Please try again later.");
+        setErrorMessage(
+          body.error ?? "Something went wrong. Please try again later.",
+        );
       }
     } catch {
       setStatus("error");
@@ -223,13 +221,6 @@ export default function Contact() {
             </div>
 
             <div aria-live="polite" aria-atomic="true">
-              {isLimited && (
-                <p className="text-sm text-destructive">
-                  Rate limit reached. You have {remaining} message(s) remaining.
-                  Try again in a few seconds.
-                </p>
-              )}
-
               {status === "success" && (
                 <p className="text-sm text-accent">
                   Message sent successfully! I&apos;ll get back to you soon.
@@ -243,7 +234,7 @@ export default function Contact() {
 
             <button
               type="submit"
-              disabled={status === "sending" || isLimited}
+              disabled={status === "sending"}
               className="inline-flex items-center gap-2 px-6 py-3 bg-accent text-background font-medium rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer min-h-[44px]"
             >
               <Send size={16} />
